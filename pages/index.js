@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import Head from 'next/head';
 import {
   processOrderLines,
@@ -7,38 +7,37 @@ import {
 } from '../lib/matchEquivalence';
 import EQUIV_MAP from '../lib/equivalences.json';
 
-// ── Composant principal ──────────────────────────────────────────────────────
-
 export default function Home() {
   // PDFs
-  const [bcFile, setBcFile] = useState(null);
-  const [bcUrl, setBcUrl] = useState(null);
   const [blFile, setBlFile] = useState(null);
-  const [blUrl, setBlUrl] = useState(null);
+  const [blUrl, setBlUrl]   = useState(null);
+  const [bcFile, setBcFile] = useState(null);
+  const [bcUrl, setBcUrl]   = useState(null);
+  const [showBcUpload, setShowBcUpload] = useState(false);
 
   // Extraction
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
-  const [error, setError] = useState(null);
+  const [error, setError]             = useState(null);
 
   // Résultats
-  const [rawBc, setRawBc] = useState(null);
-  const [rawBl, setRawBl] = useState(null);
+  const [blData, setBlData]               = useState(null);
+  const [totalHt, setTotalHt]             = useState(null);
   const [processedLines, setProcessedLines] = useState(null);
 
   // UI
-  const [activePdf, setActivePdf] = useState('bc');
+  const [activePdf, setActivePdf]   = useState('bl');
   const [showConfig, setShowConfig] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
 
-  // Configuration des frais
+  // Configuration des frais — pré-remplie avec les refs EHS
   const [feeConfig, setFeeConfig] = useState({
-    refMarquage: '910.0.0.2',
+    refMarquage: '910002',
     designationMarquage: 'Marquage / Sérigraphie',
-    refFraisGestion: '',
+    refFraisGestion: '999001',
     designationFraisGestion: 'Frais de gestion (marquage < 100 pcs)',
-    refFraisEcran: '',
-    designationFraisEcran: "Frais d'écran",
+    refFraisEcran: '910001',
+    designationFraisEcran: 'Ecran de sérigraphie',
     seuilFraisGestion: 100,
     inclureFraisEcran: true,
   });
@@ -50,27 +49,27 @@ export default function Home() {
   const handlePdfChange = useCallback((type, file) => {
     if (!file || file.type !== 'application/pdf') return;
     const url = URL.createObjectURL(file);
-    if (type === 'bc') {
-      if (bcUrl) URL.revokeObjectURL(bcUrl);
-      setBcFile(file);
-      setBcUrl(url);
-      setActivePdf('bc');
-    } else {
+    if (type === 'bl') {
       if (blUrl) URL.revokeObjectURL(blUrl);
       setBlFile(file);
       setBlUrl(url);
       setActivePdf('bl');
+    } else {
+      if (bcUrl) URL.revokeObjectURL(bcUrl);
+      setBcFile(file);
+      setBcUrl(url);
+      setActivePdf('bc');
     }
     setError(null);
-    setRawBc(null);
-    setRawBl(null);
+    setBlData(null);
     setProcessedLines(null);
-  }, [bcUrl, blUrl]);
+    setTotalHt(null);
+  }, [blUrl, bcUrl]);
 
   // ── Drag and drop ──────────────────────────────────────────────────────────
 
   const makeDragHandlers = (type) => ({
-    onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); },
+    onDragOver:  (e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); },
     onDragLeave: (e) => e.currentTarget.classList.remove('drag-over'),
     onDrop: (e) => {
       e.preventDefault();
@@ -80,48 +79,47 @@ export default function Home() {
     },
   });
 
-  // ── Extraction principale ──────────────────────────────────────────────────
+  // ── Extraction ─────────────────────────────────────────────────────────────
 
   const handleExtract = useCallback(async () => {
-    if (!bcFile) return;
+    if (!blFile) return;
     setLoading(true);
     setError(null);
-    setRawBc(null);
-    setRawBl(null);
+    setBlData(null);
     setProcessedLines(null);
+    setTotalHt(null);
 
     try {
-      setLoadingStep('Préparation des PDFs...');
+      setLoadingStep('Préparation du BL...');
       const toBase64 = (file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onload  = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
 
-      const bcBase64 = await toBase64(bcFile);
-      const blBase64 = blFile ? await toBase64(blFile) : null;
+      const blBase64 = await toBase64(blFile);
+      const bcBase64 = bcFile ? await toBase64(bcFile) : null;
 
       setLoadingStep('Extraction par Claude Haiku...');
       const response = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bcBase64, blBase64 }),
+        body: JSON.stringify({ blBase64, bcBase64 }),
       });
 
       const data = await response.json();
-
       if (!data.success) {
         setError(data.error || "Erreur lors de l'extraction");
         return;
       }
 
-      setRawBc(data.bc);
-      setRawBl(data.bl);
+      setBlData(data.bl);
+      setTotalHt(data.total_ht);
 
       setLoadingStep('Matching des références...');
-      const matched = processOrderLines(data.bc.lignes || [], EQUIV_MAP);
-      const withFees = applyMarkingFees(matched, feeConfig);
+      const matched   = processOrderLines(data.bl.lignes || [], EQUIV_MAP);
+      const withFees  = applyMarkingFees(matched, feeConfig);
       setProcessedLines(withFees);
 
     } catch (err) {
@@ -130,7 +128,7 @@ export default function Home() {
       setLoading(false);
       setLoadingStep('');
     }
-  }, [bcFile, blFile, feeConfig]);
+  }, [blFile, bcFile, feeConfig]);
 
   // ── Copie ──────────────────────────────────────────────────────────────────
 
@@ -142,21 +140,34 @@ export default function Home() {
   }, []);
 
   const copyAll = useCallback(() => {
-    if (!rawBc || !processedLines) return;
-    const text = generateOdooOutput(rawBc, rawBl, processedLines);
+    if (!blData || !processedLines) return;
+    const header = {
+      numero_commande: blData.numero_commande,
+      date: blData.date,
+      client: blData.client,
+      total_ht: totalHt,
+    };
+    const blAddr = {
+      adresse_rue: blData.adresse_rue,
+      code_postal: blData.code_postal,
+      ville: blData.ville,
+      telephone: blData.telephone,
+      contact: blData.contact,
+    };
+    const text = generateOdooOutput(header, blAddr, processedLines);
     copy(text, 'all');
-  }, [rawBc, rawBl, processedLines, copy]);
+  }, [blData, totalHt, processedLines, copy]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   const stats = processedLines ? {
-    found: processedLines.filter(l => l.status === 'found').length,
-    notFound: processedLines.filter(l => l.status === 'not_found').length,
-    prixErrors: processedLines.filter(l => l.prixMatch === 'error').length,
+    found:        processedLines.filter(l => l.status === 'found').length,
+    notFound:     processedLines.filter(l => l.status === 'not_found').length,
+    prixErrors:   processedLines.filter(l => l.prixMatch === 'error').length,
     prixWarnings: processedLines.filter(l => l.prixMatch === 'warning').length,
   } : null;
 
-  const hasResults = rawBc && processedLines;
+  const hasResults = blData && processedLines;
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
 
@@ -186,49 +197,59 @@ export default function Home() {
         </header>
 
         <main className="main">
-          {/* ── Panneau configuration frais ── */}
+
+          {/* ── Config frais ── */}
           {showConfig && (
             <div className="config-panel">
               <h3>Configuration des frais de marquage</h3>
               <div className="config-grid">
-                <label>
-                  Ref marquage
-                  <input value={feeConfig.refMarquage} onChange={e => setFeeConfig(c => ({ ...c, refMarquage: e.target.value }))} />
-                </label>
-                <label>
-                  Désignation marquage
-                  <input value={feeConfig.designationMarquage} onChange={e => setFeeConfig(c => ({ ...c, designationMarquage: e.target.value }))} />
-                </label>
-                <label>
-                  Ref frais de gestion
-                  <input placeholder="(optionnel)" value={feeConfig.refFraisGestion} onChange={e => setFeeConfig(c => ({ ...c, refFraisGestion: e.target.value }))} />
-                </label>
-                <label>
-                  Seuil frais gestion (pcs)
-                  <input type="number" value={feeConfig.seuilFraisGestion} onChange={e => setFeeConfig(c => ({ ...c, seuilFraisGestion: parseInt(e.target.value) || 100 }))} />
-                </label>
-                <label>
-                  Ref frais d'écran
-                  <input placeholder="(optionnel)" value={feeConfig.refFraisEcran} onChange={e => setFeeConfig(c => ({ ...c, refFraisEcran: e.target.value }))} />
-                </label>
+                <label>Ref marquage<input value={feeConfig.refMarquage} onChange={e => setFeeConfig(c => ({ ...c, refMarquage: e.target.value }))} /></label>
+                <label>Désignation marquage<input value={feeConfig.designationMarquage} onChange={e => setFeeConfig(c => ({ ...c, designationMarquage: e.target.value }))} /></label>
+                <label>Ref frais gestion<input value={feeConfig.refFraisGestion} onChange={e => setFeeConfig(c => ({ ...c, refFraisGestion: e.target.value }))} /></label>
+                <label>Seuil frais gestion (pcs)<input type="number" value={feeConfig.seuilFraisGestion} onChange={e => setFeeConfig(c => ({ ...c, seuilFraisGestion: parseInt(e.target.value) || 100 }))} /></label>
+                <label>Ref écran sérigraphie<input value={feeConfig.refFraisEcran} onChange={e => setFeeConfig(c => ({ ...c, refFraisEcran: e.target.value }))} /></label>
                 <label className="checkbox-label">
                   <input type="checkbox" checked={feeConfig.inclureFraisEcran} onChange={e => setFeeConfig(c => ({ ...c, inclureFraisEcran: e.target.checked }))} />
-                  Inclure frais d'écran par défaut
+                  Inclure écran par défaut
                 </label>
               </div>
             </div>
           )}
 
-          {/* ── Upload PDFs ── */}
+          {/* ── Upload ── */}
           <section className="section">
             <div className="section-header">
-              <h2>Documents PDF</h2>
+              <h2>Document PDF</h2>
             </div>
 
-            <div className="pdf-uploads">
-              {/* BC */}
-              <div>
-                <label className="upload-label">BC — Bon de commande Prozon</label>
+            {/* BL — principal */}
+            <div className="upload-block">
+              <label className="upload-label">BL — Bon de livraison Prozon <span className="required">requis</span></label>
+              <div
+                className={`drop-zone ${blFile ? 'loaded' : ''}`}
+                onClick={() => document.getElementById('bl-input').click()}
+                {...makeDragHandlers('bl')}
+              >
+                {blFile ? (
+                  <><span className="drop-loaded">✓ {blFile.name}</span><br /><span className="drop-size">{(blFile.size / 1024).toFixed(0)} KB</span></>
+                ) : (
+                  <><span className="drop-icon">📋</span><br />Glisser le BL ici<br /><span className="drop-size">ou cliquer pour sélectionner</span></>
+                )}
+                <input id="bl-input" type="file" accept="application/pdf" style={{ display: 'none' }}
+                  onChange={e => handlePdfChange('bl', e.target.files[0])} />
+              </div>
+            </div>
+
+            {/* BC — optionnel (toggle) */}
+            <div className="bc-toggle-row">
+              <button className="bc-toggle-btn" onClick={() => setShowBcUpload(s => !s)}>
+                {showBcUpload ? '▲ Masquer' : '▼ Ajouter le BC'} <span className="optional-tag">optionnel — pour les prix</span>
+              </button>
+            </div>
+
+            {showBcUpload && (
+              <div className="upload-block">
+                <label className="upload-label">BC — Bon de commande Prozon <span className="optional">optionnel</span></label>
                 <div
                   className={`drop-zone ${bcFile ? 'loaded' : ''}`}
                   onClick={() => document.getElementById('bc-input').click()}
@@ -243,48 +264,26 @@ export default function Home() {
                     onChange={e => handlePdfChange('bc', e.target.files[0])} />
                 </div>
               </div>
-
-              {/* BL */}
-              <div>
-                <label className="upload-label">BL — Bon de livraison <span className="optional">(optionnel)</span></label>
-                <div
-                  className={`drop-zone ${blFile ? 'loaded' : ''}`}
-                  onClick={() => document.getElementById('bl-input').click()}
-                  {...makeDragHandlers('bl')}
-                >
-                  {blFile ? (
-                    <><span className="drop-loaded">✓ {blFile.name}</span><br /><span className="drop-size">{(blFile.size / 1024).toFixed(0)} KB</span></>
-                  ) : (
-                    <><span className="drop-icon">📋</span><br />Glisser le BL ici<br /><span className="drop-size">ou cliquer pour sélectionner</span></>
-                  )}
-                  <input id="bl-input" type="file" accept="application/pdf" style={{ display: 'none' }}
-                    onChange={e => handlePdfChange('bl', e.target.files[0])} />
-                </div>
-              </div>
-            </div>
+            )}
 
             <button
               className="extract-btn"
               onClick={handleExtract}
-              disabled={!bcFile || loading}
+              disabled={!blFile || loading}
             >
-              {loading ? (
-                <><span className="spinner" />{loadingStep || 'Extraction en cours...'}</>
-              ) : (
-                <>⚡ Extraire la commande</>
-              )}
+              {loading
+                ? <><span className="spinner" />{loadingStep || 'Extraction en cours...'}</>
+                : <>⚡ Extraire la commande</>}
             </button>
           </section>
 
           {/* ── Erreur ── */}
           {error && (
-            <div className="error-box">
-              <strong>Erreur</strong><br />{error}
-            </div>
+            <div className="error-box"><strong>Erreur</strong><br />{error}</div>
           )}
 
           {/* ── Résultats ── */}
-          {(bcUrl || blUrl) && (
+          {blUrl && (
             <section className="section results-section">
               <div className="section-header">
                 <h2>
@@ -292,7 +291,7 @@ export default function Home() {
                   {stats && (
                     <span style={{ marginLeft: '1rem', fontWeight: 400, fontSize: '0.9rem' }}>
                       <span className="badge-success">{stats.found} trouvés</span>
-                      {stats.notFound > 0 && <span className="badge-error">{stats.notFound} introuvables</span>}
+                      {stats.notFound  > 0 && <span className="badge-error">{stats.notFound} introuvables</span>}
                       {stats.prixErrors > 0 && <span className="badge-error">{stats.prixErrors} prix ≠</span>}
                       {stats.prixWarnings > 0 && <span className="badge-warning">{stats.prixWarnings} prix ~</span>}
                     </span>
@@ -308,20 +307,19 @@ export default function Home() {
               <div className="results-layout">
                 {/* Viewer PDF */}
                 <div className="pdf-panel">
-                  {(bcUrl && blUrl) && (
+                  {blUrl && bcUrl && (
                     <div className="pdf-tabs">
-                      <button className={activePdf === 'bc' ? 'active' : ''} onClick={() => setActivePdf('bc')}>BC</button>
                       <button className={activePdf === 'bl' ? 'active' : ''} onClick={() => setActivePdf('bl')}>BL</button>
+                      <button className={activePdf === 'bc' ? 'active' : ''} onClick={() => setActivePdf('bc')}>BC</button>
                     </div>
                   )}
                   <div className="pdf-viewer">
-                    {activePdf === 'bc' && bcUrl && <iframe src={bcUrl} title="Bon de commande" />}
                     {activePdf === 'bl' && blUrl && <iframe src={blUrl} title="Bon de livraison" />}
-                    {activePdf === 'bl' && !blUrl && <div className="pdf-empty">Aucun BL chargé</div>}
+                    {activePdf === 'bc' && bcUrl && <iframe src={bcUrl} title="Bon de commande" />}
                   </div>
                 </div>
 
-                {/* Données extraites */}
+                {/* Données */}
                 <div className="data-panel">
                   {!hasResults && !loading && (
                     <div className="pending-msg">Cliquez sur "Extraire" pour lancer l'analyse</div>
@@ -333,27 +331,25 @@ export default function Home() {
                       <div className="data-block">
                         <h3>Commande</h3>
                         <div className="fields-grid">
-                          <Field label="N° commande" value={rawBc?.numero_commande} onCopy={copy} id="num" copiedField={copiedField} />
-                          <Field label="Date" value={rawBc?.date} onCopy={copy} id="date" copiedField={copiedField} />
-                          <Field label="Client" value={rawBc?.client} onCopy={copy} id="client" copiedField={copiedField} />
+                          <Field label="N° commande" value={blData.numero_commande} onCopy={copy} id="num" copiedField={copiedField} />
+                          <Field label="Date"        value={blData.date}            onCopy={copy} id="date" copiedField={copiedField} />
+                          <Field label="Client"      value={blData.client}          onCopy={copy} id="client" copiedField={copiedField} />
                         </div>
                       </div>
 
                       {/* Adresse de livraison */}
-                      {rawBl && (
-                        <div className="data-block">
-                          <h3>Adresse de livraison</h3>
-                          <div className="fields-grid">
-                            <Field label="Rue" value={rawBl.adresse_rue} onCopy={copy} id="rue" copiedField={copiedField} />
-                            <Field label="Code postal" value={rawBl.code_postal} onCopy={copy} id="cp" copiedField={copiedField} />
-                            <Field label="Ville" value={rawBl.ville} onCopy={copy} id="ville" copiedField={copiedField} />
-                            <Field label="Téléphone" value={rawBl.telephone} onCopy={copy} id="tel" copiedField={copiedField} />
-                            <Field label="Contact" value={rawBl.contact} onCopy={copy} id="contact" copiedField={copiedField} />
-                          </div>
+                      <div className="data-block">
+                        <h3>Adresse de livraison</h3>
+                        <div className="fields-grid">
+                          <Field label="Rue"         value={blData.adresse_rue}  onCopy={copy} id="rue"     copiedField={copiedField} />
+                          <Field label="Code postal" value={blData.code_postal}  onCopy={copy} id="cp"      copiedField={copiedField} />
+                          <Field label="Ville"       value={blData.ville}        onCopy={copy} id="ville"   copiedField={copiedField} />
+                          <Field label="Téléphone"   value={blData.telephone}    onCopy={copy} id="tel"     copiedField={copiedField} />
+                          <Field label="Contact"     value={blData.contact}      onCopy={copy} id="contact" copiedField={copiedField} />
                         </div>
-                      )}
+                      </div>
 
-                      {/* Lignes de commande */}
+                      {/* Lignes */}
                       <div className="data-block">
                         <h3>Lignes de commande</h3>
                         <div className="lines-table-wrap">
@@ -378,11 +374,11 @@ export default function Home() {
                           </table>
                         </div>
 
-                        {rawBc?.total_ht && (
+                        {totalHt && (
                           <div className="total-row">
-                            <span>Total HT (PDF) :</span>
-                            <span className="total-value">{rawBc.total_ht} €</span>
-                            <button className="copy-btn-sm" onClick={() => copy(rawBc.total_ht, 'total')}>
+                            <span>Total HT (BC) :</span>
+                            <span className="total-value">{totalHt} €</span>
+                            <button className="copy-btn-sm" onClick={() => copy(totalHt, 'total')}>
                               {copiedField === 'total' ? '✓' : 'Copier'}
                             </button>
                           </div>
@@ -417,321 +413,115 @@ export default function Home() {
             background: rgba(255,255,255,0.03);
             border-bottom: 1px solid rgba(251,191,36,0.15);
             padding: 0.9rem 2rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            position: sticky; top: 0; z-index: 100;
             backdrop-filter: blur(12px);
           }
-          .header-inner {
-            max-width: 1900px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-          }
+          .header-inner { max-width: 1900px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
           .logo { display: flex; align-items: center; gap: 0.9rem; }
           .logo-icon { font-size: 2rem; }
           .logo h1 { font-size: 1.4rem; font-weight: 700; color: #fbbf24; }
           .logo p { font-size: 0.78rem; color: #71717a; font-family: 'JetBrains Mono', monospace; }
           .config-btn {
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #a1a1aa;
-            padding: 0.4rem 0.9rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            transition: all 0.2s;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+            color: #a1a1aa; padding: 0.4rem 0.9rem; border-radius: 6px; font-size: 0.85rem; transition: all 0.2s;
           }
           .config-btn:hover { background: rgba(255,255,255,0.1); color: #e2e2ef; }
 
-          .main {
-            max-width: 1900px;
-            margin: 0 auto;
-            padding: 1.5rem 2rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.25rem;
-          }
+          .main { max-width: 1900px; margin: 0 auto; padding: 1.5rem 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
 
           .config-panel {
-            background: rgba(251,191,36,0.05);
-            border: 1px solid rgba(251,191,36,0.2);
-            border-radius: 10px;
-            padding: 1.25rem;
+            background: rgba(251,191,36,0.05); border: 1px solid rgba(251,191,36,0.2);
+            border-radius: 10px; padding: 1.25rem;
           }
           .config-panel h3 { font-size: 0.9rem; font-weight: 600; color: #fbbf24; margin-bottom: 0.9rem; }
-          .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 0.75rem;
-          }
-          .config-grid label {
-            display: flex;
-            flex-direction: column;
-            gap: 0.3rem;
-            font-size: 0.8rem;
-            color: #a1a1aa;
-          }
+          .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; }
+          .config-grid label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: #a1a1aa; }
           .config-grid input[type="text"], .config-grid input[type="number"] {
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
-            padding: 0.35rem 0.6rem;
-            color: #e2e2ef;
-            font-size: 0.85rem;
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; padding: 0.35rem 0.6rem; color: #e2e2ef; font-size: 0.85rem;
           }
-          .checkbox-label { flex-direction: row; align-items: center; gap: 0.5rem; }
+          .checkbox-label { flex-direction: row !important; align-items: center; gap: 0.5rem; }
           .checkbox-label input { width: 15px; height: 15px; }
 
           .section {
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 12px;
-            padding: 1.25rem;
+            background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px; padding: 1.25rem;
           }
-          .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-          }
-          .section-header h2 {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e2e2ef;
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            flex-wrap: wrap;
-          }
+          .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+          .section-header h2 { font-size: 1rem; font-weight: 600; color: #e2e2ef; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 
-          .badge-success {
-            background: rgba(16,185,129,0.15);
-            color: #6ee7b7;
-            border: 1px solid rgba(16,185,129,0.3);
-            padding: 0.15rem 0.55rem;
-            border-radius: 10px;
-            font-size: 0.78rem;
-            font-weight: 600;
-          }
-          .badge-error {
-            background: rgba(239,68,68,0.15);
-            color: #fca5a5;
-            border: 1px solid rgba(239,68,68,0.3);
-            padding: 0.15rem 0.55rem;
-            border-radius: 10px;
-            font-size: 0.78rem;
-            font-weight: 600;
-          }
-          .badge-warning {
-            background: rgba(251,191,36,0.15);
-            color: #fcd34d;
-            border: 1px solid rgba(251,191,36,0.3);
-            padding: 0.15rem 0.55rem;
-            border-radius: 10px;
-            font-size: 0.78rem;
-            font-weight: 600;
-          }
-
-          .pdf-uploads {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1.25rem;
-          }
-          .upload-label {
-            display: block;
-            font-size: 0.82rem;
-            font-weight: 600;
-            color: #a1a1aa;
-            margin-bottom: 0.4rem;
-          }
+          .upload-block { margin-bottom: 0.75rem; }
+          .upload-label { display: block; font-size: 0.82rem; font-weight: 600; color: #a1a1aa; margin-bottom: 0.4rem; }
+          .required { color: #fbbf24; font-weight: 700; }
           .optional { font-weight: 400; color: #52525b; }
 
           .drop-zone {
-            border: 2px dashed rgba(251,191,36,0.25);
-            border-radius: 10px;
-            padding: 1.5rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            background: rgba(251,191,36,0.02);
-            font-size: 0.88rem;
-            color: #a1a1aa;
-            line-height: 1.7;
+            border: 2px dashed rgba(251,191,36,0.25); border-radius: 10px; padding: 1.5rem;
+            text-align: center; cursor: pointer; transition: all 0.2s;
+            background: rgba(251,191,36,0.02); font-size: 0.88rem; color: #a1a1aa; line-height: 1.7;
           }
-          .drop-zone:hover, .drop-zone.drag-over {
-            border-color: rgba(251,191,36,0.6);
-            background: rgba(251,191,36,0.06);
-          }
-          .drop-zone.loaded {
-            border-color: rgba(16,185,129,0.4);
-            background: rgba(16,185,129,0.04);
-          }
+          .drop-zone:hover, .drop-zone.drag-over { border-color: rgba(251,191,36,0.6); background: rgba(251,191,36,0.06); }
+          .drop-zone.loaded { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.04); }
           .drop-loaded { color: #6ee7b7; font-weight: 600; font-size: 0.88rem; }
           .drop-icon { font-size: 1.8rem; }
           .drop-size { font-size: 0.78rem; color: #52525b; }
 
+          .bc-toggle-row { margin-bottom: 0.75rem; }
+          .bc-toggle-btn {
+            background: none; border: 1px solid rgba(255,255,255,0.08);
+            color: #71717a; padding: 0.35rem 0.85rem; border-radius: 6px;
+            font-size: 0.8rem; transition: all 0.2s;
+          }
+          .bc-toggle-btn:hover { color: #a1a1aa; border-color: rgba(255,255,255,0.15); }
+          .optional-tag { color: #52525b; font-size: 0.75rem; margin-left: 0.4rem; }
+
           .extract-btn {
-            width: 100%;
-            padding: 0.9rem;
-            font-size: 1rem;
-            font-weight: 600;
+            width: 100%; padding: 0.9rem; font-size: 1rem; font-weight: 600;
             background: linear-gradient(135deg, #fbbf24, #f59e0b);
-            color: #0d0d1a;
-            border: none;
-            border-radius: 10px;
-            transition: all 0.25s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
+            color: #0d0d1a; border: none; border-radius: 10px; transition: all 0.25s;
+            display: flex; align-items: center; justify-content: center; gap: 0.75rem;
             box-shadow: 0 4px 20px rgba(251,191,36,0.25);
           }
-          .extract-btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 25px rgba(251,191,36,0.4);
-          }
+          .extract-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 25px rgba(251,191,36,0.4); }
           .extract-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-          .spinner {
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(13,13,26,0.3);
-            border-top-color: #0d0d1a;
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-            flex-shrink: 0;
-          }
+          .spinner { width: 18px; height: 18px; border: 2px solid rgba(13,13,26,0.3); border-top-color: #0d0d1a; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
           @keyframes spin { to { transform: rotate(360deg); } }
 
-          .error-box {
-            background: rgba(239,68,68,0.1);
-            border: 1px solid rgba(239,68,68,0.3);
-            border-radius: 8px;
-            padding: 1rem;
-            color: #fca5a5;
-            font-size: 0.88rem;
-          }
+          .error-box { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 1rem; color: #fca5a5; font-size: 0.88rem; }
+
+          .badge-success { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); padding: 0.15rem 0.55rem; border-radius: 10px; font-size: 0.78rem; font-weight: 600; }
+          .badge-error   { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); padding: 0.15rem 0.55rem; border-radius: 10px; font-size: 0.78rem; font-weight: 600; }
+          .badge-warning { background: rgba(251,191,36,0.15); color: #fcd34d; border: 1px solid rgba(251,191,36,0.3); padding: 0.15rem 0.55rem; border-radius: 10px; font-size: 0.78rem; font-weight: 600; }
 
           .results-section { padding: 1.25rem; }
-          .copy-all-btn {
-            background: rgba(16,185,129,0.15);
-            border: 1px solid rgba(16,185,129,0.3);
-            color: #6ee7b7;
-            padding: 0.45rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            transition: all 0.2s;
-          }
+          .copy-all-btn { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
           .copy-all-btn:hover { background: rgba(16,185,129,0.25); }
 
-          .results-layout {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.25rem;
-          }
+          .results-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 
           .pdf-panel { display: flex; flex-direction: column; }
           .pdf-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-          .pdf-tabs button {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: #71717a;
-            padding: 0.3rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            transition: all 0.2s;
-          }
-          .pdf-tabs button.active {
-            background: rgba(251,191,36,0.15);
-            border-color: rgba(251,191,36,0.4);
-            color: #fbbf24;
-          }
-          .pdf-viewer {
-            background: #111120;
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 8px;
-            overflow: hidden;
-            flex: 1;
-            min-height: 700px;
-          }
+          .pdf-tabs button { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #71717a; padding: 0.3rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
+          .pdf-tabs button.active { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.4); color: #fbbf24; }
+          .pdf-viewer { background: #111120; border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; overflow: hidden; flex: 1; min-height: 700px; }
           .pdf-viewer iframe { width: 100%; height: 100%; border: none; min-height: 700px; }
-          .pdf-empty {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 200px;
-            color: #52525b;
-            font-size: 0.88rem;
-          }
 
-          .data-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            overflow-y: auto;
-            max-height: 850px;
-          }
+          .data-panel { display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; max-height: 850px; }
           .pending-msg { color: #52525b; font-size: 0.9rem; text-align: center; padding: 2rem; }
 
-          .data-block {
-            background: rgba(0,0,0,0.2);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 8px;
-            padding: 1rem;
-          }
-          .data-block h3 {
-            font-size: 0.82rem;
-            font-weight: 600;
-            color: #fbbf24;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.75rem;
-          }
+          .data-block { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 1rem; }
+          .data-block h3 { font-size: 0.82rem; font-weight: 600; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
           .fields-grid { display: flex; flex-direction: column; gap: 0.4rem; }
 
           .lines-table-wrap { overflow-x: auto; }
           .lines-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-          .lines-table th {
-            text-align: left;
-            color: #71717a;
-            font-weight: 500;
-            padding: 0.3rem 0.5rem;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            white-space: nowrap;
-          }
-          .lines-table td {
-            padding: 0.3rem 0.5rem;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            vertical-align: middle;
-          }
+          .lines-table th { text-align: left; color: #71717a; font-weight: 500; padding: 0.3rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
+          .lines-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
           .lines-table tr:last-child td { border-bottom: none; }
 
-          .total-row {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-top: 0.75rem;
-            padding-top: 0.75rem;
-            border-top: 1px solid rgba(255,255,255,0.08);
-            font-size: 0.88rem;
-            color: #a1a1aa;
-          }
+          .total-row { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.88rem; color: #a1a1aa; }
           .total-value { font-weight: 700; color: #fbbf24; font-size: 1rem; }
-          .copy-btn-sm {
-            background: rgba(251,191,36,0.1);
-            border: 1px solid rgba(251,191,36,0.25);
-            color: #fbbf24;
-            padding: 0.2rem 0.6rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            transition: all 0.2s;
-          }
+          .copy-btn-sm { background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.25); color: #fbbf24; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; transition: all 0.2s; }
           .copy-btn-sm:hover { background: rgba(251,191,36,0.2); }
 
           @media (max-width: 1200px) {
@@ -742,7 +532,6 @@ export default function Home() {
           }
           @media (max-width: 768px) {
             .main { padding: 1rem; }
-            .pdf-uploads { grid-template-columns: 1fr; }
           }
         `}</style>
       </div>
@@ -766,13 +555,8 @@ function Field({ label, value, onCopy, id, copiedField }) {
             background: copiedField === id ? 'rgba(16,185,129,0.15)' : 'rgba(251,191,36,0.1)',
             border: `1px solid ${copiedField === id ? 'rgba(16,185,129,0.3)' : 'rgba(251,191,36,0.25)'}`,
             color: copiedField === id ? '#6ee7b7' : '#fbbf24',
-            padding: '0.15rem 0.5rem',
-            borderRadius: '4px',
-            fontSize: '0.72rem',
-            fontWeight: 600,
-            flexShrink: 0,
-            transition: 'all 0.2s',
-            cursor: 'pointer',
+            padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.72rem',
+            fontWeight: 600, flexShrink: 0, transition: 'all 0.2s', cursor: 'pointer',
           }}
           onClick={() => onCopy(value, id)}
         >
@@ -784,24 +568,19 @@ function Field({ label, value, onCopy, id, copiedField }) {
 }
 
 function OrderLine({ line, onCopy, copiedField, idx }) {
-  const isFee = line.status === 'fee';
+  const isFee      = line.status === 'fee';
   const isNotFound = line.status === 'not_found';
-  const isSecondComp = line.composantIndex === 2;
+  const isSecond   = line.composantIndex === 2;
 
   const rowStyle = {
-    background: isFee
-      ? 'rgba(251,191,36,0.05)'
-      : isNotFound
-      ? 'rgba(239,68,68,0.05)'
-      : isSecondComp
-      ? 'rgba(255,255,255,0.02)'
-      : 'transparent',
+    background: isFee      ? 'rgba(251,191,36,0.05)'
+               : isNotFound ? 'rgba(239,68,68,0.05)'
+               : isSecond   ? 'rgba(255,255,255,0.02)'
+               : 'transparent',
   };
 
-  const prixMatchColor = {
-    ok: '#6ee7b7', warning: '#fcd34d', error: '#fca5a5'
-  }[line.prixMatch] || '#71717a';
-  const prixMatchLabel = { ok: '✓', warning: '~', error: '≠' }[line.prixMatch] || '—';
+  const prixColor = { ok: '#6ee7b7', warning: '#fcd34d', error: '#fca5a5' }[line.prixMatch] || '#71717a';
+  const prixLabel = { ok: '✓', warning: '~', error: '≠' }[line.prixMatch] || '—';
 
   const lineSummary = `${line.ehsRef || ''}\t${line.designation_ehs || ''}\t${line.quantite || ''}\t${line.prixTable ?? line.prixPdf ?? ''}`;
 
@@ -809,29 +588,21 @@ function OrderLine({ line, onCopy, copiedField, idx }) {
     <tr style={rowStyle}>
       <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.75rem', color: '#71717a' }}>
         {line.ref_prozon || ''}
-        {isFee && <span style={{ color: '#fbbf24', fontSize: '0.7rem', display: 'block' }}>{line.feeType}</span>}
+        {isFee      && <span style={{ color: '#fbbf24', fontSize: '0.7rem', display: 'block' }}>{line.feeType}</span>}
         {isNotFound && <span style={{ color: '#fca5a5', fontSize: '0.7rem', display: 'block' }}>⚠ introuvable</span>}
       </td>
-      <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem', color: isNotFound ? '#fca5a5' : isSecondComp ? '#a1a1aa' : '#e2e2ef', fontWeight: isSecondComp ? 400 : 600 }}>
+      <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem', color: isNotFound ? '#fca5a5' : isSecond ? '#a1a1aa' : '#e2e2ef', fontWeight: isSecond ? 400 : 600 }}>
         {line.ehsRef || '?'}
       </td>
       <td style={{ fontSize: '0.8rem', color: '#d4d4d8', maxWidth: 200 }}>{line.designation_ehs || ''}</td>
       <td style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#fbbf24', textAlign: 'right' }}>{line.quantite}</td>
       <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem', color: '#a1a1aa', textAlign: 'right' }}>{line.prixPdf != null ? line.prixPdf : ''}</td>
       <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem', color: '#e2e2ef', textAlign: 'right' }}>{line.prixTable != null ? line.prixTable : ''}</td>
-      <td style={{ textAlign: 'center', color: prixMatchColor, fontWeight: 700, fontSize: '0.85rem' }}>{prixMatchLabel}</td>
+      <td style={{ textAlign: 'center', color: prixColor, fontWeight: 700, fontSize: '0.85rem' }}>{prixLabel}</td>
       <td>
         {!isFee && (
           <button
-            style={{
-              background: copiedField === `line-${idx}` ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              color: copiedField === `line-${idx}` ? '#6ee7b7' : '#71717a',
-              padding: '0.15rem 0.4rem',
-              borderRadius: '3px',
-              fontSize: '0.7rem',
-              cursor: 'pointer',
-            }}
+            style={{ background: copiedField === `line-${idx}` ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: copiedField === `line-${idx}` ? '#6ee7b7' : '#71717a', padding: '0.15rem 0.4rem', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer' }}
             onClick={() => onCopy(lineSummary, `line-${idx}`)}
           >
             {copiedField === `line-${idx}` ? '✓' : 'Copier'}
