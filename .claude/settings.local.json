@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(cmd /c \"npm --version\")",
+      "Bash(cmd /c \"node --version\")",
+      "Bash(cmd /c \"npm --version && node --version\")",
+      "Bash(echo EXIT:$?)",
+      "Bash(export PATH=/c/Users/Bruno/AppData/Local/claude-cli-nodejs/Cache:$PATH)",
+      "Read(//c/Users/Bruno/AppData/Roaming//**)",
+      "Bash(echo $PATH)",
+      "Bash(winget install:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
+      "Bash(npm --version)",
+      "Bash(npm install:*)",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\" npm audit)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /PID 29472 /F)",
+      "Bash(/c/Windows/System32/taskkill.exe //PID 29472 //F)",
+      "Bash(node -e \":*)",
+      "Bash(/c/Windows/System32/taskkill.exe //PID 11348 //F)"
+    ]
+  }
+}
