@@ -20,7 +20,8 @@
       "Bash(taskkill /PID 29472 /F)",
       "Bash(/c/Windows/System32/taskkill.exe //PID 29472 //F)",
       "Bash(node -e \":*)",
-      "Bash(/c/Windows/System32/taskkill.exe //PID 11348 //F)"
+      "Bash(/c/Windows/System32/taskkill.exe //PID 11348 //F)",
+      "Bash(node -e \"const p = require\\(''./node_modules/pdfjs-dist/package.json''\\); console.log\\(p.version\\)\")"
     ]
   }
 }
