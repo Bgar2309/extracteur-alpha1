@@ -61,6 +61,7 @@ export default function Home() {
   const [blData,         setBlData]         = useState(null);
   const [totalHt,        setTotalHt]        = useState(null);
   const [processedLines, setProcessedLines] = useState(null);
+  const [reasoning,      setReasoning]      = useState(null);
 
   const [activePdf,   setActivePdf]   = useState('bc');
   const [copiedField, setCopiedField] = useState(null);
@@ -120,7 +121,7 @@ export default function Home() {
   const handleExtract = useCallback(async () => {
     if (!bcFile && !blFile) return;
     setLoading(true); setError(null);
-    setBlData(null); setProcessedLines(null); setTotalHt(null);
+    setBlData(null); setProcessedLines(null); setTotalHt(null); setReasoning(null);
 
     try {
       const toB64 = (f) => new Promise((res, rej) => {
@@ -145,6 +146,7 @@ export default function Home() {
 
       setBlData(data.bl);
       setTotalHt(data.total_ht);
+      setReasoning(data.reasoning || null);
 
       setLoadingStep('Matching…');
       const src      = data.bl || data.bc;
@@ -266,6 +268,8 @@ export default function Home() {
                   <OrderRow key={i} line={line} idx={i} copy={copy} copiedField={copiedField} />
                 ))}
               </Section>
+
+              {reasoning && <ReasoningBlock text={reasoning} />}
             </>}
           </div>
         </div>
@@ -506,6 +510,45 @@ function Row({ label, value, id, copy, copiedField }) {
       }}>
         {copied ? '✓' : 'Copier'}
       </button>
+    </div>
+  );
+}
+
+function ReasoningBlock({ text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,.04)', paddingTop: 14 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', padding: 0,
+          color: '#2e2e48', fontSize: 10, fontWeight: 600,
+          letterSpacing: '.08em', textTransform: 'uppercase',
+          cursor: 'pointer', transition: 'color .15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.color = '#555570'}
+        onMouseLeave={e => e.currentTarget.style.color = '#2e2e48'}
+      >
+        <span style={{ fontSize: 9, lineHeight: 1 }}>{open ? '▼' : '▶'}</span>
+        Raisonnement du modèle
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 8,
+          padding: '10px 12px',
+          background: 'rgba(255,255,255,.02)',
+          border: '1px solid rgba(255,255,255,.05)',
+          borderRadius: 6,
+          fontSize: 11.5,
+          lineHeight: 1.65,
+          color: '#555570',
+          whiteSpace: 'pre-wrap',
+          fontFamily: "'JetBrains Mono', monospace",
+        }}>
+          {text}
+        </div>
+      )}
     </div>
   );
 }
