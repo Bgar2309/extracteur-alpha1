@@ -37,12 +37,19 @@ async function extractFromPdf(pdfBase64, prompt) {
     if (block.type === 'text') responseText += block.text;
   }
 
-  let jsonText = responseText.trim();
+  // Extraire la section RAISONNEMENT (entre "RAISONNEMENT:" et "JSON:")
+  const reasoningMatch = responseText.match(/RAISONNEMENT\s*:\s*([\s\S]*?)(?=\nJSON\s*:)/i);
+  const reasoning = reasoningMatch ? reasoningMatch[1].trim() : null;
+
+  // Extraire le bloc JSON (après "JSON:")
+  const jsonMatch = responseText.match(/JSON\s*:\s*([\s\S]*)/i);
+  let jsonText = jsonMatch ? jsonMatch[1].trim() : responseText.trim();
+
   if (jsonText.startsWith('```')) {
     jsonText = jsonText.replace(/^```(?:json)?\n?/m, '').replace(/```\s*$/m, '').trim();
   }
 
-  return JSON.parse(jsonText);
+  return { data: JSON.parse(jsonText), reasoning };
 }
 
 export default async function handler(req, res) {
@@ -57,9 +64,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Le PDF du bon de livraison (BL) est requis' });
     }
 
-    const blData = await extractFromPdf(blBase64, BL_EXTRACTION_PROMPT);
+    const blResult = await extractFromPdf(blBase64, BL_EXTRACTION_PROMPT);
 
-    return res.status(200).json({ success: true, bl: blData });
+    return res.status(200).json({ success: true, bl: blResult.data, reasoning: blResult.reasoning });
 
   } catch (error) {
     console.error('Erreur extraction:', error);
